@@ -62,9 +62,47 @@ pub struct Program {
     keywords: Box<[Symbol]>,
     chunks: Box<[Chunk]>,
     protos: Box<[FunctionPrototype]>,
+    globals: GlobalStore,
+}
+
+pub struct VirtualMachine<'a> {
+    program: &'a mut Program,
     stack: ValueStack,
     locals: LocalStack,
-    globals: GlobalStore,
+    last_ip: usize,
+    chunk_stack: Vec<usize>,
+    current_chunk_index: usize, // small optimization to avoid unwrap
+    ip_stack: Vec<usize>,
+    upvalue_stack: Vec<Rc<[Cell]>>,
+}
+
+impl<'a> VirtualMachine<'a> {
+    fn new(program: &'a mut Program) -> Self {
+        Self {
+            program,
+            stack: ValueStack::new(),
+            locals: LocalStack::new(),
+            last_ip: 0,
+            chunk_stack: vec![],
+            current_chunk_index: 0,
+            ip_stack: vec![],
+            upvalue_stack: vec![],
+        }
+    }
+
+    fn call_depth(&self) -> usize {
+        self.chunk_stack.len()
+    }
+
+    fn push_frame(&mut self) {
+        self.locals.push_frame();
+        self.stack.push_frame();
+    }
+
+    fn pop_frame(&mut self) {
+        self.locals.pop_frame();
+        self.stack.pop_frame();
+    }
 }
 
 #[derive(Clone)]
@@ -295,7 +333,7 @@ where
         return Ok(());
     }
 
-    let mut values = stack.pop_many(num).ok_or(RuntimeError::StackUnderflow)?;
+    let mut values = stack.pop_many_required(num)?;
     let mut accum = values.next().unwrap();
 
     for value in values {
@@ -331,8 +369,6 @@ impl Program {
             keywords,
             chunks,
             protos,
-            stack: ValueStack::new(),
-            locals: LocalStack::new(),
             globals: GlobalStore::new(),
         }
     }
@@ -375,96 +411,92 @@ impl Program {
     }
 
     pub fn run(&mut self) -> Result<Value, ProgramError> {
-        // TODO store all this state in an explicit struct
-        let mut chunk_stack = vec![];
-        let mut ip_stack = vec![];
-        let mut upvalue_stack = vec![];
-        let mut current_chunk_idx = 0;
-        let mut call_depth = 0;
-        let mut last_ip = 0;
-        self.locals.push_frame();
-        self.stack.push_frame();
+        let mut vm = VirtualMachine::new(self);
 
-        let mut chunk = &self.chunks[0];
+        vm.push_frame();
+
+        let mut chunk = &vm.program.chunks[0];
         let mut reader = InstructionReader::new(chunk.insns(), 0);
 
         for _ in 0..chunk.num_locals() {
-            self.locals.push_value(Value::Nil);
+            vm.locals.push_value(Value::Nil);
         }
 
         let mut upvalues = Rc::from(vec![]);
 
         loop {
-            let single_trace = |err| wrap_err(err, last_ip, chunk.debug());
-            let program_trace = |err| wrap_program_err(err, last_ip, chunk.debug());
+            let single_trace = |err| wrap_err(err, vm.last_ip, chunk.debug());
+            let program_trace = |err| wrap_program_err(err, vm.last_ip, chunk.debug());
 
             let insn = reader
                 .next()
                 .ok_or(RuntimeError::CorruptedBytecode)
                 .map_err(single_trace)?;
 
-            if call_depth > MAX_CALL_DEPTH {
+            if vm.call_depth() > MAX_CALL_DEPTH {
                 return Err(RuntimeError::RecursionTooDeep).map_err(single_trace);
             }
 
             match insn {
-                Instruction::LoadNil => self.stack.push(Value::Nil),
-                Instruction::LoadFalse => self.stack.push(Value::new(false)),
-                Instruction::LoadTrue => self.stack.push(Value::new(true)),
-                Instruction::LoadFloat(float) => self.stack.push(Value::new(float)),
-                Instruction::LoadSmallInt(int) => self.stack.push(Value::new(int)), // TODO this is early optimization
+                Instruction::LoadNil => vm.stack.push(Value::Nil),
+                Instruction::LoadFalse => vm.stack.push(Value::new(false)),
+                Instruction::LoadTrue => vm.stack.push(Value::new(true)),
+                Instruction::LoadFloat(float) => vm.stack.push(Value::new(float)),
+                Instruction::LoadSmallInt(int) => vm.stack.push(Value::new(int)), // TODO this is early optimization
                 Instruction::LoadConstant(index) => {
-                    let item = self
+                    let item = vm
+                        .program
                         .consts
                         .get(index)
                         .ok_or(RuntimeError::InvalidConstant(index))
                         .map_err(single_trace)?;
 
-                    self.stack.push(Value::new(item.clone()));
+                    vm.stack.push(Value::new(item.clone()));
                 }
 
                 Instruction::Add(num) => {
-                    arith_op(&mut self.stack, num, |a, b| a + b).map_err(single_trace)?
+                    arith_op(&mut vm.stack, num, |a, b| a + b).map_err(single_trace)?
                 }
 
                 Instruction::Sub(num) => {
-                    arith_op(&mut self.stack, num, |a, b| a - b).map_err(single_trace)?
+                    arith_op(&mut vm.stack, num, |a, b| a - b).map_err(single_trace)?
                 }
 
                 Instruction::Mul(num) => {
-                    arith_op(&mut self.stack, num, |a, b| a * b).map_err(single_trace)?
+                    arith_op(&mut vm.stack, num, |a, b| a * b).map_err(single_trace)?
                 }
 
                 Instruction::Div(num) => {
-                    arith_op(&mut self.stack, num, |a, b| a / b).map_err(single_trace)?
+                    arith_op(&mut vm.stack, num, |a, b| a / b).map_err(single_trace)?
                 }
 
                 Instruction::Neg => {
-                    let value = self.stack.pop_required().map_err(single_trace)?;
-                    self.stack.push((-value).map_err(single_trace)?);
+                    let value = vm.stack.pop_required().map_err(single_trace)?;
+                    vm.stack.push((-value).map_err(single_trace)?);
                 }
 
                 Instruction::Recip => {
-                    let value = self.stack.pop_required().map_err(single_trace)?;
+                    let value = vm.stack.pop_required().map_err(single_trace)?;
                     let one = Value::new(1);
-                    self.stack.push((one / value).map_err(single_trace)?);
+                    vm.stack.push((one / value).map_err(single_trace)?);
                 }
 
                 Instruction::Call(num_args) => {
-                    let target = self.stack.pop_required().map_err(single_trace)?;
+                    let target = vm.stack.pop_required().map_err(single_trace)?;
 
                     match target {
                         Value::BuiltinFunction(func) => {
                             let result =
-                                func.call(&mut self.stack, num_args).map_err(single_trace)?;
+                                func.call(&mut vm.stack, num_args).map_err(single_trace)?;
 
-                            self.stack.push(result);
+                            vm.stack.push(result);
                         }
 
                         Value::Closure(closure) => {
                             let proto_idx = closure.proto_index();
 
-                            let proto = self
+                            let proto = vm
+                                .program
                                 .protos
                                 .get(proto_idx)
                                 .ok_or(RuntimeError::InvalidFunction(proto_idx))
@@ -478,37 +510,37 @@ impl Program {
 
                             let chunk_index = proto.chunk();
 
-                            let target_chunk = self
+                            let target_chunk = vm
+                                .program
                                 .chunks
                                 .get(chunk_index)
                                 .ok_or(RuntimeError::InvalidChunk(chunk_index))
                                 .map_err(single_trace)?;
 
-                            let args = self
+                            let args = vm
                                 .stack
                                 .pop_many_required(proto.num_args())
                                 .map_err(single_trace)?;
 
-                            self.locals.push_frame();
+                            vm.locals.push_frame();
 
                             for arg in args {
-                                self.locals.push_value(arg);
+                                vm.locals.push_value(arg);
                             }
 
                             for _ in 0..target_chunk.num_locals() {
-                                self.locals.push_value(Value::Nil);
+                                vm.locals.push_value(Value::Nil);
                             }
 
-                            self.stack.push_frame();
+                            vm.stack.push_frame();
 
-                            chunk_stack.push(current_chunk_idx);
-                            ip_stack.push(reader.ip());
-                            upvalue_stack.push(Rc::clone(&upvalues));
+                            vm.chunk_stack.push(vm.current_chunk_index);
+                            vm.ip_stack.push(reader.ip());
+                            vm.upvalue_stack.push(Rc::clone(&upvalues));
                             upvalues = closure.upvalues();
-                            current_chunk_idx = chunk_index;
-                            chunk = &self.chunks[chunk_index];
+                            vm.current_chunk_index = chunk_index;
+                            chunk = &vm.program.chunks[chunk_index];
                             reader = InstructionReader::new(chunk.insns(), 0);
-                            call_depth += 1;
                         }
 
                         _ => {
@@ -522,18 +554,19 @@ impl Program {
                 // eventually we will want to only emit this for genuine tail calls
                 // for now however, there's tons of duplicate logic shared with Call
                 Instruction::PossibleTailCall(num_args) => {
-                    let target = self.stack.pop_required().map_err(single_trace)?;
+                    let target = vm.stack.pop_required().map_err(single_trace)?;
 
                     match target {
                         Value::BuiltinFunction(func) => {
                             let result =
-                                func.call(&mut self.stack, num_args).map_err(single_trace)?;
+                                func.call(&mut vm.stack, num_args).map_err(single_trace)?;
 
-                            self.stack.push(result);
+                            vm.stack.push(result);
                         }
 
                         Value::Closure(closure) => {
-                            let proto = self
+                            let proto = vm
+                                .program
                                 .protos
                                 .get(closure.proto_index())
                                 .ok_or(RuntimeError::InvalidFunction(closure.proto_index()))
@@ -547,59 +580,59 @@ impl Program {
 
                             let chunk_index = proto.chunk();
 
-                            let target_chunk = self
+                            let target_chunk = vm
+                                .program
                                 .chunks
                                 .get(chunk_index)
                                 .ok_or(RuntimeError::InvalidChunk(chunk_index))
                                 .map_err(single_trace)?;
 
-                            let args = self
+                            let args = vm
                                 .stack
                                 .pop_many_required(proto.num_args())
                                 .map_err(single_trace)?;
 
-                            // Genuine tail call case, reset mut_data.locals and reset the instruction reader
-                            if chunk_index == current_chunk_idx {
-                                self.locals.pop_frame();
-                                self.locals.push_frame();
+                            // Genuine tail call case, reset mut_data.vm.locals and reset the instruction reader
+                            if chunk_index == vm.current_chunk_index {
+                                vm.locals.pop_frame();
+                                vm.locals.push_frame();
 
                                 for arg in args {
-                                    self.locals.push_value(arg);
+                                    vm.locals.push_value(arg);
                                 }
 
                                 for _ in 0..target_chunk.num_locals() {
-                                    self.locals.push_value(Value::Nil);
+                                    vm.locals.push_value(Value::Nil);
                                 }
 
-                                self.stack.pop_frame();
-                                self.stack.push_frame();
+                                vm.stack.pop_frame();
+                                vm.stack.push_frame();
                                 upvalues = closure.upvalues();
-                                chunk = &self.chunks[chunk_index];
+                                chunk = &vm.program.chunks[chunk_index];
                                 reader = InstructionReader::new(chunk.insns(), 0);
-                                last_ip = reader.ip();
+                                vm.last_ip = reader.ip();
                                 continue;
                             }
 
-                            self.locals.push_frame();
+                            vm.locals.push_frame();
 
                             for arg in args {
-                                self.locals.push_value(arg);
+                                vm.locals.push_value(arg);
                             }
 
                             for _ in 0..target_chunk.num_locals() {
-                                self.locals.push_value(Value::Nil);
+                                vm.locals.push_value(Value::Nil);
                             }
 
-                            self.stack.push_frame();
+                            vm.stack.push_frame();
 
-                            chunk_stack.push(current_chunk_idx);
-                            ip_stack.push(reader.ip());
-                            upvalue_stack.push(Rc::clone(&upvalues));
+                            vm.chunk_stack.push(vm.current_chunk_index);
+                            vm.ip_stack.push(reader.ip());
+                            vm.upvalue_stack.push(Rc::clone(&upvalues));
                             upvalues = closure.upvalues();
-                            current_chunk_idx = chunk_index;
-                            chunk = &self.chunks[chunk_index];
+                            vm.current_chunk_index = chunk_index;
+                            chunk = &vm.program.chunks[chunk_index];
                             reader = InstructionReader::new(chunk.insns(), 0);
-                            call_depth += 1;
                         }
 
                         _ => {
@@ -609,36 +642,39 @@ impl Program {
                 }
 
                 Instruction::LoadGlobal(index) => {
-                    let sym = self
+                    let sym = vm
+                        .program
                         .symbols
                         .get(index)
                         .ok_or(RuntimeError::InvalidSymbol(index))
                         .map_err(single_trace)?;
 
-                    let cell = self
+                    let cell = vm
+                        .program
                         .globals
                         .get_mut(sym)
                         .ok_or_else(|| RuntimeError::UndefinedGlobal(sym.clone()))
                         .map_err(single_trace)?;
 
                     let value = cell.borrow();
-                    self.stack.push(value.clone());
+                    vm.stack.push(value.clone());
                 }
 
                 Instruction::StoreGlobal(index) => {
-                    let sym = self
+                    let sym = vm
+                        .program
                         .symbols
                         .get(index)
                         .ok_or(RuntimeError::InvalidSymbol(index))
                         .map_err(single_trace)?;
 
-                    let value = self.stack.pop_required().map_err(single_trace)?;
+                    let value = vm.stack.pop_required().map_err(single_trace)?;
 
-                    self.globals.insert(sym.clone(), value);
+                    vm.program.globals.insert(sym.clone(), value);
                 }
 
                 Instruction::JumpIfFalse(num) => {
-                    let value = self.stack.pop_required().map_err(single_trace)?;
+                    let value = vm.stack.pop_required().map_err(single_trace)?;
 
                     if value.falsy() {
                         reader.jump_forward(num);
@@ -650,8 +686,8 @@ impl Program {
                 }
 
                 Instruction::Greater => {
-                    let b = self.stack.pop_required().map_err(single_trace)?;
-                    let a = self.stack.pop_required().map_err(single_trace)?;
+                    let b = vm.stack.pop_required().map_err(single_trace)?;
+                    let a = vm.stack.pop_required().map_err(single_trace)?;
 
                     let cmp_res = a
                         .partial_cmp(&b)
@@ -659,12 +695,12 @@ impl Program {
                         .map_err(single_trace)?;
 
                     let res = matches!(cmp_res, Ordering::Greater);
-                    self.stack.push(Value::new(res));
+                    vm.stack.push(Value::new(res));
                 }
 
                 Instruction::GreaterOrEqual => {
-                    let b = self.stack.pop_required().map_err(single_trace)?;
-                    let a = self.stack.pop_required().map_err(single_trace)?;
+                    let b = vm.stack.pop_required().map_err(single_trace)?;
+                    let a = vm.stack.pop_required().map_err(single_trace)?;
 
                     let cmp_res = a
                         .partial_cmp(&b)
@@ -672,12 +708,12 @@ impl Program {
                         .map_err(single_trace)?;
 
                     let res = matches!(cmp_res, Ordering::Greater | Ordering::Equal);
-                    self.stack.push(Value::new(res));
+                    vm.stack.push(Value::new(res));
                 }
 
                 Instruction::Less => {
-                    let b = self.stack.pop_required().map_err(single_trace)?;
-                    let a = self.stack.pop_required().map_err(single_trace)?;
+                    let b = vm.stack.pop_required().map_err(single_trace)?;
+                    let a = vm.stack.pop_required().map_err(single_trace)?;
 
                     let cmp_res = a
                         .partial_cmp(&b)
@@ -685,12 +721,12 @@ impl Program {
                         .map_err(single_trace)?;
 
                     let res = matches!(cmp_res, Ordering::Less);
-                    self.stack.push(Value::new(res));
+                    vm.stack.push(Value::new(res));
                 }
 
                 Instruction::LessOrEqual => {
-                    let b = self.stack.pop_required().map_err(single_trace)?;
-                    let a = self.stack.pop_required().map_err(single_trace)?;
+                    let b = vm.stack.pop_required().map_err(single_trace)?;
+                    let a = vm.stack.pop_required().map_err(single_trace)?;
 
                     let cmp_res = a
                         .partial_cmp(&b)
@@ -698,43 +734,45 @@ impl Program {
                         .map_err(single_trace)?;
 
                     let res = matches!(cmp_res, Ordering::Less | Ordering::Equal);
-                    self.stack.push(Value::new(res));
+                    vm.stack.push(Value::new(res));
                 }
 
                 Instruction::Equal => {
-                    cmp_op(&mut self.stack, Value::eq).map_err(single_trace)?;
+                    cmp_op(&mut vm.stack, Value::eq).map_err(single_trace)?;
                 }
 
                 Instruction::NotEqual => {
-                    cmp_op(&mut self.stack, Value::ne).map_err(single_trace)?;
+                    cmp_op(&mut vm.stack, Value::ne).map_err(single_trace)?;
                 }
 
                 Instruction::Not => {
-                    let value = self.stack.pop_required().map_err(single_trace)?;
+                    let value = vm.stack.pop_required().map_err(single_trace)?;
 
-                    self.stack.push(Value::new(!value.truthy()));
+                    vm.stack.push(Value::new(!value.truthy()));
                 }
 
                 Instruction::LoadLocal(index) => {
-                    let cell = self.locals.get_mut_required(index).map_err(single_trace)?;
+                    let cell = vm.locals.get_mut_required(index).map_err(single_trace)?;
                     let value = cell.borrow();
-                    self.stack.push(value.clone());
+                    vm.stack.push(value.clone());
                 }
 
                 Instruction::StoreLocal(index) => {
-                    let cell = self.locals.get_mut_required(index).map_err(single_trace)?;
-                    let value = self.stack.pop_required().map_err(single_trace)?;
+                    let cell = vm.locals.get_mut_required(index).map_err(single_trace)?;
+                    let value = vm.stack.pop_required().map_err(single_trace)?;
                     *cell.borrow_mut() = value;
                 }
 
                 Instruction::LoadClosure(proto_index) => {
-                    let proto = self
+                    let proto = vm
+                        .program
                         .protos
                         .get(proto_index)
                         .ok_or(RuntimeError::InvalidFunction(proto_index))
                         .map_err(single_trace)?;
 
-                    let chunk = self
+                    let chunk = vm
+                        .program
                         .chunks
                         .get(proto.chunk())
                         .ok_or(RuntimeError::InvalidChunk(proto.chunk()))
@@ -744,7 +782,7 @@ impl Program {
 
                     for upval in chunk.upvalues().iter() {
                         let cell = match upval {
-                            UpvalueDescriptor::Local(index) => self
+                            UpvalueDescriptor::Local(index) => vm
                                 .locals
                                 .get_mut_required(*index)
                                 .map_err(single_trace)?
@@ -760,7 +798,7 @@ impl Program {
                         cells.push(cell);
                     }
 
-                    self.stack
+                    vm.stack
                         .push(Value::new(Closure::new(proto_index, cells.into())));
                 }
 
@@ -770,7 +808,7 @@ impl Program {
                         .ok_or(RuntimeError::InvalidUpvalue(index))
                         .map_err(single_trace)?;
 
-                    self.stack.push(cell.borrow().clone());
+                    vm.stack.push(cell.borrow().clone());
                 }
 
                 Instruction::StoreUpvalue(index) => {
@@ -779,27 +817,27 @@ impl Program {
                         .ok_or(RuntimeError::InvalidUpvalue(index))
                         .map_err(single_trace)?;
 
-                    let value = self.stack.pop_required().map_err(single_trace)?;
+                    let value = vm.stack.pop_required().map_err(single_trace)?;
 
                     *cell.borrow_mut() = value;
                 }
 
                 Instruction::MakeVector(num) => {
-                    let args = self.stack.pop_many_required(num).map_err(single_trace)?;
+                    let args = vm.stack.pop_many_required(num).map_err(single_trace)?;
                     let vec: Vec<_> = args.collect();
-                    self.stack.push(Value::new(Rc::<[Value]>::from(vec)));
+                    vm.stack.push(Value::new(Rc::<[Value]>::from(vec)));
                 }
 
                 Instruction::MakeList(num) => {
                     // XXX TODO use a proper list
-                    let args = self.stack.pop_many_required(num).map_err(single_trace)?;
+                    let args = vm.stack.pop_many_required(num).map_err(single_trace)?;
                     let vec: Vec<_> = args.collect();
-                    self.stack.push(Value::List(Rc::<[Value]>::from(vec)));
+                    vm.stack.push(Value::List(Rc::<[Value]>::from(vec)));
                 }
 
                 Instruction::MakeTable(num) => {
                     let mut map = HashMap::new();
-                    let mut args = self.stack.pop_many_required(num).map_err(single_trace)?;
+                    let mut args = vm.stack.pop_many_required(num).map_err(single_trace)?;
 
                     while let Some(key) = args.next() {
                         let key: ValueKey = key
@@ -812,56 +850,56 @@ impl Program {
                     }
 
                     drop(args);
-                    self.stack.push(Value::new(Rc::new(map)));
+                    vm.stack.push(Value::new(Rc::new(map)));
                 }
 
                 Instruction::Eval => {
-                    let value = self.stack.pop_required().map_err(single_trace)?;
+                    let value = vm.stack.pop_required().map_err(single_trace)?;
                     let builder = ProgramBuilder::new();
                     let mut program = compile_eval(builder, value)
                         .map_err(RuntimeError::Compile)
                         .map_err(single_trace)?;
 
-                    self.stack.push(program.run().map_err(program_trace)?);
+                    vm.stack.push(program.run().map_err(program_trace)?);
                 }
 
                 Instruction::LoadKeyword(index) => {
                     // TODO keyword table
-                    let sym = self
+                    let sym = vm
+                        .program
                         .keywords
                         .get(index)
                         .ok_or(RuntimeError::InvalidKeyword(index))
                         .map_err(single_trace)?;
 
                     let keyword = Keyword::new(index, sym.clone());
-                    self.stack.push(Value::new(keyword));
+                    vm.stack.push(Value::new(keyword));
                 }
 
                 Instruction::Pop(num) => {
-                    drop(self.stack.pop_many_required(num).map_err(single_trace)?);
+                    drop(vm.stack.pop_many_required(num).map_err(single_trace)?);
                 }
 
                 Instruction::Return => {
-                    let rval = self.stack.pop_required().map_err(single_trace)?;
+                    let rval = vm.stack.pop_required().map_err(single_trace)?;
 
-                    match chunk_stack.pop() {
+                    match vm.chunk_stack.pop() {
                         Some(caller_chunk_idx) => {
-                            let ip = ip_stack.pop().unwrap();
-                            upvalues = upvalue_stack.pop().unwrap();
-                            current_chunk_idx = caller_chunk_idx;
-                            chunk = &self.chunks[caller_chunk_idx];
+                            let ip = vm.ip_stack.pop().unwrap();
+                            upvalues = vm.upvalue_stack.pop().unwrap();
+                            vm.current_chunk_index = caller_chunk_idx;
+                            chunk = &vm.program.chunks[caller_chunk_idx];
                             reader = InstructionReader::new(chunk.insns(), ip);
-                            call_depth -= 1;
-                            self.locals.pop_frame();
-                            self.stack.pop_frame();
-                            self.stack.push(rval);
+                            vm.locals.pop_frame();
+                            vm.stack.pop_frame();
+                            vm.stack.push(rval);
                         }
                         None => return Ok(rval),
                     };
                 }
             }
 
-            last_ip = reader.ip();
+            vm.last_ip = reader.ip();
         }
     }
 }
