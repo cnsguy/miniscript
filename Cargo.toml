@@ -1,0 +1,12 @@
+[package]
+name = "miniscript"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+chumsky = "0.13.0"
+num = "0.4.3"
+num-derive = "0.5.1"
+num-traits = "0.2.19"
+ordered-float = "5.5.0"
+thiserror = "2.0.20"

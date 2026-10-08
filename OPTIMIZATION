@@ -1,0 +1,26 @@
+SLOW
+ - instruction decoding!!!!!!!!
+ - local variable access
+ - stack push/pop
+
+RESEARCH
+ - look into CPS and ANF (standard functional ways of doing SSA)
+ - egraphs / EGG
+ - Sea of Nodes?
+  -> https://github.com/SeaOfNodes/Simple
+
+SMALL INTS
+ - small int variant (i64) - most ints are small, no alloc would be nice
+
+CACHE GLOBALS
+ - cache global lookups somehow
+
+FASTER/PROPER UPVALUES AND LOCALS
+ - lazy boxing for upvalues / proper open and closed upvalues
+ - at runtime: move things that exit scope to the heap
+
+OPTIMIZE BYTECODE
+ - throw everything without a side effect away
+
+SYMBOLS ARE INTERNED
+ - fast path eq / hash / ... as with Keywords

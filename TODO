@@ -1,0 +1,100 @@
+PROPER ERRORS FOR COMPILATION
+ - stringify forms, backtrace based on builder debug info + builder's ip (position)
+
+EVAL BUGS
+ - function definition behaves in really weird and buggy ways
+  -> propagating a closure from the subprogram to the enclosing program should be an error
+  -> copy over function protos into the enclosing program?
+   - needs to be Rc<>d
+
+ - new globals aren't propagated into the enclosing program
+  -> trivial fix
+  -> as long as you don't want to allow sharing closures
+
+SETTLE ON LIMITED EVAL?
+ - explicit environment pass
+ - keeps things simple
+ - we're not a real lisp...
+
+CLEAN UP POST-EVAL
+ - don't emit the enclosing unused chunk
+ - get data (like chunks) from the enclosing programbuilder
+  -> we no longer need a separate finish() + Box<[Chunk]>, for example
+
+STORE INTERNED SYMBOL INDEX IN SYMBOL VALUES
+ - same logic as keywords
+ - should work, right?
+
+ALLOW BUILTIN FUNCTIONS TO CALL BACK INTO THE VIRTUAL MACHINE
+ - explicit VirtualMachine struct passed around in run_chunk and to builtin fns
+ - explicit call() function in program for calling closures
+ - needs a bit of refactoring and work
+
+MUTUAL TCO
+ - is it enough to treat any PossibleTailCall as a tail call and just replace the frame?
+ - we need deeper analysis, probably
+
+FEATURES TO ADD BEFORE 1.0
+ - explicit ValueType, (type x) built-in and better errors for builtin function readers
+  -> maybe also use valuetype in addition / substraction errors
+  
+ - smaller instruction operand sizes - usize is HUGE
+ - proper eval
+ - proper list type
+ - cleaner source code
+ - macros!
+
+DOCUMENT THE SELF CAPTURING CLOSURE LEAK
+ - (set g (fn [] g)) leaks memory
+ - but who would even do something like this???
+ - swift apparently has this issue as well
+
+NEW STANDARD FUNCTIONS
+ - for/doseq
+ - import
+ - map/fold
+ - read
+ - cons, head (car), tail (cdr)
+ - write
+ - index (for vectors)
+ - uneval: chunk -> source value dumping?
+
+NEW SPECIAl FORMS
+ - and/or
+ - (declare sym1 sym2 sym3...)
+
+BUGS
+ - recursion
+  -> the Display implementation for containers can overflow the rust stack
+  -> the default recursive Drop implementation for large tables also blows up the stack
+  -> this is probably an issue in many places
+  -> recheck em all
+  -> using stacker at pain points seems to be the simplest solution
+
+ERROR HANDLING
+ - compile error backtraces
+ - trace all debug info in the range for the IP for the frame instead of picking a single one
+
+CLEANUPS
+ - get rid of data_mut.push/pop, it's not clear
+ - refactor code into smaller modules
+ - decide on either ::from and such or .into()s
+ - maybe switch run_chunk to chunk_index: usize based dispatch instead of &Chunk?
+
+TODO READER SYNTAX
+ - quasiquote: `(x ,y z)
+ - cons???: (x . y)
+ - gensym??? x# (from clojure)
+
+SPECIAL FORMS
+ - (eventually) gensym
+
+BYTECODE
+ - right now invalid instructions are just ignored
+
+LOOPS
+ - jumps backward for loops (isize jumps?)
+
+FUTURE
+ - no_std build
+ - get rid of chumsky
