@@ -3,7 +3,7 @@
 A small, simple, embeddable Lisp-like scripting language for Rust tools.
 Compiles S-expressions to bytecode and runs them on a tiny VM.
 
-> **Status: heavily WIP.** see [BUGS.md](BUGS.md) and [TODO](TODO)
+> **Status: heavily WIP.** see [BUGS](BUGS) and [TODO](TODO)
 > for what what's next.
 
 ```clojure

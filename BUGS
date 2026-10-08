@@ -1,0 +1,5 @@
+SELF-REFERENTIAL CLOSURE LEAK/CYCLE
+ - (defn m [] (let [g nil] (set g (fn [] g)) g)) leaks memory
+
+EVAL IS HEAVILY WIP
+ - barely works.
