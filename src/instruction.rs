@@ -47,6 +47,7 @@ pub enum Instruction {
     Eval,
     LoadKeyword(usize), // index in the global keywords table
     Pop(usize),         // number of entries to pop off the ValueStack
+    Return,
 }
 
 #[derive(Clone)]
@@ -99,6 +100,7 @@ enum Opcode {
     Eval = 33,
     LoadKeyword = 34,
     Pop = 35,
+    Return = 36,
 }
 
 // XXX it would be better to use generics if it was possible
@@ -123,8 +125,8 @@ macro_rules! define_write {
 }
 
 impl<'a> InstructionReader<'a> {
-    pub fn new(bytes: &'a InstructionStream) -> Self {
-        Self { bytes, ip: 0 }
+    pub fn new(bytes: &'a InstructionStream, ip: usize) -> Self {
+        Self { bytes, ip }
     }
 
     pub fn ip(&self) -> usize {
@@ -249,6 +251,8 @@ impl Iterator for InstructionReader<'_> {
             Opcode::Eval => Some(Instruction::Eval),
             Opcode::LoadKeyword => Some(Instruction::LoadKeyword(self.read_usize()?)),
             Opcode::Pop => Some(Instruction::Pop(self.read_usize()?)),
+
+            Opcode::Return => Some(Instruction::Return),
         }
     }
 }
@@ -398,6 +402,8 @@ impl InstructionBuilder {
                 self.write_opcode(Opcode::Pop);
                 self.write_usize(x);
             }
+
+            Instruction::Return => self.write_opcode(Opcode::Return),
         }
     }
 
@@ -460,7 +466,7 @@ mod tests {
             }
 
             let bytes = builder.finish();
-            let reader = InstructionReader::new(&bytes);
+            let reader = InstructionReader::new(&bytes, 0);
             let result = Vec::from_iter(reader);
 
             for (x, y) in insns.iter().zip(result.iter()) {
@@ -513,6 +519,7 @@ mod tests {
             Instruction::MakeList(0),
             Instruction::Eval,
             Instruction::Pop(1),
+            Instruction::Return,
         ]);
     }
 }

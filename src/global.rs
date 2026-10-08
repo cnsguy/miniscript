@@ -31,8 +31,4 @@ impl GlobalStore {
     pub fn get_mut(&mut self, key: &Symbol) -> Option<&mut Cell> {
         self.globals.get_mut(key)
     }
-
-    pub fn iter(&self) -> impl Iterator<Item = (&Symbol, &Cell)> {
-        self.globals.iter()
-    }
 }

@@ -44,7 +44,7 @@ fn debug_run(file_content: &str) {
     println!("{file_content}\n");
     println!("======================");
 
-    let mut program = match program(file_content) {
+    let program = match program(file_content) {
         Ok(program) => program,
         Err(err) => {
             println!("Error: {err}");
@@ -96,7 +96,7 @@ mod tests {
     use num::BigInt;
 
     fn run(file_content: &str) -> Result<Value, MainError> {
-        let mut program = program(file_content)?;
+        let program = program(file_content)?;
         Ok(program.run()?)
     }
 

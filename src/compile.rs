@@ -298,6 +298,16 @@ fn special_cond(
     Ok(())
 }
 
+fn compile_function_body(
+    builder: &mut ProgramBuilder,
+    reader: ExprReader,
+    tail: bool,
+) -> Result<(), CompileError> {
+    compile_progn(builder, reader, tail)?;
+    builder.emit(Instruction::Return);
+    Ok(())
+}
+
 fn compile_progn(
     builder: &mut ProgramBuilder,
     reader: ExprReader,
@@ -338,7 +348,7 @@ fn special_fn(
         num_args += 1;
     }
 
-    compile_progn(builder, reader, true)?;
+    compile_function_body(builder, reader, true)?;
     builder.pop_chunk_scope();
     let proto = FunctionPrototype::new(num_args, chunk);
     let proto_idx = builder.register_proto(proto);
@@ -363,7 +373,7 @@ fn special_defnl(
         num_args += 1;
     }
 
-    compile_progn(builder, reader, true)?;
+    compile_function_body(builder, reader, true)?;
     builder.pop_chunk_scope();
     let proto = FunctionPrototype::new(num_args, chunk);
     let proto_idx = builder.register_proto(proto);
@@ -396,7 +406,7 @@ fn special_defn(
         num_args += 1;
     }
 
-    compile_progn(builder, reader, true)?;
+    compile_function_body(builder, reader, true)?;
     builder.pop_chunk_scope();
     let proto = FunctionPrototype::new(num_args, chunk);
     let proto_idx = builder.register_proto(proto);
@@ -954,19 +964,25 @@ pub fn compile_syntax(
     mut builder: ProgramBuilder,
     toplevel: Box<[Syntax]>,
 ) -> Result<Program, CompileError> {
-    let toplevel = syntax_to_exprs(&mut builder, toplevel);
     load_standard_special_forms(&mut builder);
 
+    let toplevel = syntax_to_exprs(&mut builder, toplevel);
     let total = toplevel.len();
 
-    for (index, expr) in toplevel.into_iter().enumerate() {
-        if index + 1 == total && total > 1 {
-            builder.emit(Instruction::Pop(total - 1));
-        }
+    if total > 0 {
+        for (index, expr) in toplevel.into_iter().enumerate() {
+            if index + 1 == total && total > 1 {
+                builder.emit(Instruction::Pop(total - 1));
+            }
 
-        compile_expr(&mut builder, expr, false)?;
+            compile_expr(&mut builder, expr, false)?;
+        }
+    } else {
+        builder.emit(Instruction::LoadNil);
     }
 
+    // XXX TODO dedup with function body compilation
+    builder.emit(Instruction::Return);
     Ok(builder.finish())
 }
 
@@ -1016,5 +1032,6 @@ pub fn compile_eval(mut builder: ProgramBuilder, value: Value) -> Result<Program
     let expr = value_to_expr(value)?;
     load_standard_special_forms(&mut builder);
     compile_expr(&mut builder, expr, false)?;
+    builder.emit(Instruction::Return);
     Ok(builder.finish())
 }
