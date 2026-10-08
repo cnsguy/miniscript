@@ -375,6 +375,7 @@ impl Program {
     }
 
     pub fn run(&mut self) -> Result<Value, ProgramError> {
+        // TODO store all this state in an explicit struct
         let mut chunk_stack = vec![];
         let mut ip_stack = vec![];
         let mut upvalue_stack = vec![];
