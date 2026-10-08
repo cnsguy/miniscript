@@ -85,7 +85,7 @@ fn main() {
     }
 
     if !read_something {
-        debug_run_file("test.lisp");
+        debug_run_file("test.ms");
     }
 }
 

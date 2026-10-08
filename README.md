@@ -70,7 +70,7 @@ cargo test                  # test suite
 cargo clippy --all-targets  # lints
 ```
 
-With no file argument it runs `test.lisp`.
+With no file argument it runs `test.ms`.
 
 ## Embedding
 Not yet implemented.
