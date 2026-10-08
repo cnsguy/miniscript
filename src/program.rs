@@ -812,7 +812,6 @@ impl Program {
                     self.stack.push(Value::new(Rc::new(map)));
                 }
 
-                // TODO collect the enclosing chunk code
                 Instruction::Eval => {
                     let value = self.stack.pop_required().map_err(single_trace)?;
                     let builder = ProgramBuilder::new();
