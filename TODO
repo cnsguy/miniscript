@@ -52,12 +52,17 @@ DOCUMENT THE SELF CAPTURING CLOSURE LEAK
 NEW STANDARD FUNCTIONS
  - for/doseq
  - import
- - map/fold
+ - map/fold/filter
+  -> operates over list, vector, string generically
+  -> creates the same type of value for its result
  - read
  - cons, head (car), tail (cdr)
  - write
  - index (for vectors)
  - uneval: chunk -> source value dumping?
+ - dec: (- x 1)
+ - inc: (+ x 1)
+ - zero?: (== 0)
 
 NEW SPECIAl FORMS
  - and/or
