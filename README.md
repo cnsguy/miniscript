@@ -1,13 +1,13 @@
 # miniscript
 
 A small, simple, embeddable Lisp-like scripting language for Rust tools.
-Compiles s-expressions to bytecode and runs them on a tiny VM.
+Compiles S-expressions to bytecode and runs them on a tiny VM.
 
-> **Status: heavily in development.** Semantics shift often; see
-> [BUGS.md](BUGS.md) and [TODO](TODO) for what's known-broken and what's next.
+> **Status: heavily WIP.** see [BUGS.md](BUGS.md) and [TODO](TODO)
+> for what what's next.
 
-```lisp
-; factorial, with a tail-recursive helper
+```clojure
+; factorial with TCO
 (defn fact-iter [n acc]
   (if (<= n 1)
     acc
@@ -32,7 +32,7 @@ Everything is an s-expression; calls are `(head arg ...)` in prefix position.
 | tables | `{:name "bob" :age 30}` |
 | quoted forms | `'(1 2 3)` |
 
-```lisp
+```clojure
 ; bindings: defl (local), def (global), set (rebind), let (scoped)
 (defl x 10)
 (let [y (+ x 5)] (* y 2))  ; => 30
@@ -62,31 +62,15 @@ Everything is an s-expression; calls are `(head arg ...)` in prefix position.
 Falsy values are `nil`, `false`, `0`, `""`, and empty vectors/tables/lists —
 everything else is truthy.
 
-The standard builtins are `print`, `println`, `str-append`, `str-repeat`,
-`tget`, and `repr`.
-
 ## Running
 
 ```sh
-cargo run -- program.lisp   # run a file (prints disassembly + result)
+cargo run -- program.lisp   # run a file
 cargo test                  # test suite
-cargo clippy --all-targets  # lints (kept clean)
+cargo clippy --all-targets  # lints
 ```
 
 With no file argument it runs `test.lisp`.
 
 ## Embedding
-
-The pipeline is factored for embedding: parse to syntax, compile with a
-`ProgramBuilder`, load the standard builtins, run.
-
-```rust
-let tree = parse(source)?;
-let program = compile(ProgramBuilder::new(), tree)?;
-load_standard_builtins(&mut program);
-let value = program.run()?;
-```
-
-(`src/main.rs:program` has the full 5-line version.) Note the crate is
-currently binary-only — exposing it as a library is on the way to making
-"embeddable" literally true.
+Not yet implemented.
