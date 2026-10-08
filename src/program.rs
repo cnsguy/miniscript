@@ -426,12 +426,15 @@ impl Program {
                 Instruction::Add(num) => {
                     arith_op(&mut self.stack, num, |a, b| a + b).map_err(single_trace)?
                 }
+
                 Instruction::Sub(num) => {
                     arith_op(&mut self.stack, num, |a, b| a - b).map_err(single_trace)?
                 }
+
                 Instruction::Mul(num) => {
                     arith_op(&mut self.stack, num, |a, b| a * b).map_err(single_trace)?
                 }
+
                 Instruction::Div(num) => {
                     arith_op(&mut self.stack, num, |a, b| a / b).map_err(single_trace)?
                 }
