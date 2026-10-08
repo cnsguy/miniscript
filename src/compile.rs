@@ -978,6 +978,7 @@ pub fn compile_syntax(
             compile_expr(&mut builder, expr, false)?;
         }
     } else {
+        // XXX TODO dedup with zero len progn logic
         builder.emit(Instruction::LoadNil);
     }
 
