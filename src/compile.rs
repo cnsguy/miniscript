@@ -602,7 +602,7 @@ fn compile_list_expr(
             compile_expr(builder, head, false)?;
 
             if tail {
-                builder.emit(Instruction::PossibleTailCall(len));
+                builder.emit(Instruction::TailCall(len));
             } else {
                 builder.emit(Instruction::Call(len));
             }

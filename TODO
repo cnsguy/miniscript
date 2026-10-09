@@ -30,10 +30,6 @@ ALLOW BUILTIN FUNCTIONS TO CALL BACK INTO THE VIRTUAL MACHINE
  - explicit call() function in program for calling closures
  - needs a bit of refactoring and work
 
-MUTUAL TCO
- - is it enough to treat any PossibleTailCall as a tail call and just replace the frame?
- - we need deeper analysis, probably
-
 FEATURES TO ADD BEFORE 1.0
  - explicit ValueType, (type x) built-in and better errors for builtin function readers
   -> maybe also use valuetype in addition / substraction errors

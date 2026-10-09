@@ -412,7 +412,6 @@ impl Program {
 
     pub fn run(&mut self) -> Result<Value, ProgramError> {
         let mut vm = VirtualMachine::new(self);
-
         vm.push_frame();
 
         let mut chunk = &vm.program.chunks[0];
@@ -549,11 +548,8 @@ impl Program {
                     }
                 }
 
-                // XXX TODO deduplicate this with Call
-                // we emit this for any tail position right now
-                // eventually we will want to only emit this for genuine tail calls
-                // for now however, there's tons of duplicate logic shared with Call
-                Instruction::PossibleTailCall(num_args) => {
+                // XXX TODO is this correct?
+                Instruction::TailCall(num_args) => {
                     let target = vm.stack.pop_required().map_err(single_trace)?;
 
                     match target {
@@ -592,28 +588,7 @@ impl Program {
                                 .pop_many_required(proto.num_args())
                                 .map_err(single_trace)?;
 
-                            // Genuine tail call case, reset mut_data.vm.locals and reset the instruction reader
-                            if chunk_index == vm.current_chunk_index {
-                                vm.locals.pop_frame();
-                                vm.locals.push_frame();
-
-                                for arg in args {
-                                    vm.locals.push_value(arg);
-                                }
-
-                                for _ in 0..target_chunk.num_locals() {
-                                    vm.locals.push_value(Value::Nil);
-                                }
-
-                                vm.stack.pop_frame();
-                                vm.stack.push_frame();
-                                upvalues = closure.upvalues();
-                                chunk = &vm.program.chunks[chunk_index];
-                                reader = InstructionReader::new(chunk.insns(), 0);
-                                vm.last_ip = reader.ip();
-                                continue;
-                            }
-
+                            vm.locals.pop_frame();
                             vm.locals.push_frame();
 
                             for arg in args {
@@ -624,15 +599,12 @@ impl Program {
                                 vm.locals.push_value(Value::Nil);
                             }
 
+                            vm.stack.pop_frame();
                             vm.stack.push_frame();
-
-                            vm.chunk_stack.push(vm.current_chunk_index);
-                            vm.ip_stack.push(reader.ip());
-                            vm.upvalue_stack.push(Rc::clone(&upvalues));
                             upvalues = closure.upvalues();
-                            vm.current_chunk_index = chunk_index;
                             chunk = &vm.program.chunks[chunk_index];
                             reader = InstructionReader::new(chunk.insns(), 0);
+                            vm.last_ip = reader.ip();
                         }
 
                         _ => {

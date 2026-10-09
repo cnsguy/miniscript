@@ -16,17 +16,17 @@ pub enum Instruction {
     LoadTrue,
     LoadFloat(f64),
     LoadSmallInt(i64),
-    LoadConstant(usize),     // index of interned constant
-    Add(usize),              // number of values to add
-    Sub(usize),              // number of values to substract
-    Mul(usize),              // number of values to multiply
-    Div(usize),              // number of values to divide
-    Neg,                     // unary negation
-    Recip,                   // unary reciprocial
-    Call(usize),             // number of arguments
-    PossibleTailCall(usize), // number of arguments
-    LoadGlobal(usize),       // index of symbol
-    StoreGlobal(usize),      // index of symbol
+    LoadConstant(usize), // index of interned constant
+    Add(usize),          // number of values to add
+    Sub(usize),          // number of values to substract
+    Mul(usize),          // number of values to multiply
+    Div(usize),          // number of values to divide
+    Neg,                 // unary negation
+    Recip,               // unary reciprocial
+    Call(usize),         // number of arguments
+    TailCall(usize),     // number of arguments
+    LoadGlobal(usize),   // index of symbol
+    StoreGlobal(usize),  // index of symbol
     JumpIfFalse(usize),
     Jump(usize),
     Greater,
@@ -77,7 +77,7 @@ enum Opcode {
     Neg = 10,
     Recip = 11,
     Call = 12,
-    PossibleTailCall = 13,
+    TailCall = 13,
     LoadGlobal = 14,
     StoreGlobal = 15,
     JumpIfFalse = 16,
@@ -213,7 +213,7 @@ impl Iterator for InstructionReader<'_> {
 
             Opcode::Call => Some(Instruction::Call(self.read_usize()?)),
 
-            Opcode::PossibleTailCall => Some(Instruction::PossibleTailCall(self.read_usize()?)),
+            Opcode::TailCall => Some(Instruction::TailCall(self.read_usize()?)),
 
             Opcode::LoadGlobal => Some(Instruction::LoadGlobal(self.read_usize()?)),
             Opcode::StoreGlobal => Some(Instruction::StoreGlobal(self.read_usize()?)),
@@ -318,8 +318,8 @@ impl InstructionBuilder {
                 self.write_usize(num);
             }
 
-            Instruction::PossibleTailCall(num) => {
-                self.write_opcode(Opcode::PossibleTailCall);
+            Instruction::TailCall(num) => {
+                self.write_opcode(Opcode::TailCall);
                 self.write_usize(num);
             }
 
@@ -497,7 +497,7 @@ mod tests {
             Instruction::Neg,
             Instruction::Recip,
             Instruction::Call(2),
-            Instruction::PossibleTailCall(1),
+            Instruction::TailCall(1),
             Instruction::LoadGlobal(0),
             Instruction::StoreGlobal(0),
             Instruction::JumpIfFalse(0),

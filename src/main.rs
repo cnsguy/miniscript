@@ -447,12 +447,12 @@ mod tests {
 
         assert_eq!(
             Value::new(false),
-            run(&format!("{source} (even? 21)")).unwrap()
+            run(&format!("{source} (even? 1001)")).unwrap()
         );
 
         assert_eq!(
             Value::new(true),
-            run(&format!("{source} (odd? 21)")).unwrap()
+            run(&format!("{source} (odd? 1001)")).unwrap()
         );
     }
 
