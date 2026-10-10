@@ -3,6 +3,9 @@ SLOW
  - local variable access
  - stack push/pop
 
+CHEAP HACKS
+ - StoreLoadGlobal/Local/Upvalue?
+
 RESEARCH
  - look into CPS and ANF (standard functional ways of doing SSA)
  - egraphs / EGG
