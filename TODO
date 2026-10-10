@@ -1,3 +1,9 @@
+MOVE EVERYTHING INTO A VIRTUAL MACHINEE STRUCT
+ - so builtin functions (map/fold/filter) can call back into the vm
+
+MERGE CLOSURES AND BUILTINFUNCTIONS
+ - so they're treated uniformly in map/fold/filter
+
 PROPER ERRORS FOR COMPILATION
  - stringify forms, backtrace based on builder debug info + builder's ip (position)
 
